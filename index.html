@@ -1,0 +1,257 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Before You</title>
+    <style>
+      /* 极简主义风格：黑白，大字，无衬线 */
+      :root {
+        --bg-color: #f4f4f4;
+        --text-color: #111;
+        --accent-color: #555;
+      }
+
+      body {
+        background-color: var(--bg-color);
+        color: var(--text-color);
+        font-family: "Courier New", Courier, monospace; /* 打字机字体，自带档案感 */
+        margin: 0;
+        padding: 20px;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        min-height: 100vh;
+      }
+
+      .container {
+        max-width: 480px;
+        width: 100%;
+        border-top: 2px solid var(--text-color);
+        border-bottom: 2px solid var(--text-color);
+        padding: 40px 0;
+      }
+
+      h1 {
+        font-size: 14px;
+        text-transform: uppercase;
+        letter-spacing: 2px;
+        margin-bottom: 40px;
+        text-align: center;
+      }
+
+      .data-list {
+        list-style: none;
+        padding: 0;
+        margin: 0;
+      }
+
+      .data-item {
+        display: flex;
+        justify-content: space-between;
+        margin-bottom: 15px;
+        font-size: 14px;
+        border-bottom: 1px dashed #ccc;
+        padding-bottom: 5px;
+      }
+
+      .label {
+        color: var(--accent-color);
+        text-transform: uppercase;
+        font-size: 12px;
+      }
+      .value {
+        font-weight: bold;
+      }
+
+      button {
+        width: 100%;
+        padding: 20px;
+        margin-top: 30px;
+        background: var(--text-color);
+        color: var(--bg-color);
+        border: none;
+        font-family: inherit;
+        font-size: 14px;
+        cursor: pointer;
+        text-transform: uppercase;
+      }
+
+      button:disabled {
+        opacity: 0.5;
+        cursor: wait;
+      }
+
+      .hidden {
+        display: none;
+      }
+      .note {
+        font-size: 10px;
+        color: #888;
+        margin-top: 20px;
+        text-align: center;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="entry-view" class="container">
+      <h1>Protocol: Handover</h1>
+      <p style="font-size: 14px; line-height: 1.6; margin-bottom: 30px">
+        This site holds only one record.<br /><br />
+        To see who was here <b>before you</b>, you must agree to leave your
+        trace for the one who comes <b>after you</b>.
+      </p>
+      <button id="exchange-btn">Agree & Exchange Data</button>
+      <p class="note">Data collected: IP, Location, Battery, Device, Time.</p>
+    </div>
+
+    <div id="result-view" class="container hidden">
+      <h1>The Visitor Before You</h1>
+      <ul class="data-list" id="data-list"></ul>
+      <p class="note">
+        Your record is now active. Waiting for the next visitor...
+      </p>
+    </div>
+
+    <script type="module">
+            import { initializeApp } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js";
+            import { getDatabase, ref, set, get, child } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-database.js";
+
+            // === 配置区域 START ===
+            
+            const firebaseConfig = {
+
+            apiKey: "AIzaSyBVcBJbWDVfpi5FLaoSnGg94v1mW19G8v8",
+
+            authDomain: "beforeyoume-sklr.firebaseapp.com",
+
+            databaseURL: "https://beforeyoume-sklr-default-rtdb.firebaseio.com",
+
+            projectId: "beforeyoume-sklr",
+
+            storageBucket: "beforeyoume-sklr.firebasestorage.app",
+
+            messagingSenderId: "737305438592",
+
+            appId: "1:737305438592:web:f6cdc936f5f796fa963965"
+
+        };
+
+            // === 配置区域 END ===
+
+            const app = initializeApp(firebaseConfig);
+            const db = getDatabase(app);
+
+            const btn = document.getElementById('exchange-btn');
+            const entryView = document.getElementById('entry-view');
+            const resultView = document.getElementById('result-view');
+            const list = document.getElementById('data-list');
+
+            btn.addEventListener('click', async () => {
+                btn.disabled = true;
+                btn.innerText = "Connecting...";
+
+                try {
+                    // 1. 并行执行：获取 IP 信息 + 获取电池信息
+                    const [ipData, batteryStatus] = await Promise.all([
+                        fetch('https://ipwho.is/').then(res => res.json()), // 免费 IP API
+                        getBatteryInfo()
+                    ]);
+
+                    // 2. 组装当前用户的数据 (Current User Data)
+                    const myData = {
+                        time: new Date().toISOString(), // 标准时间格式
+                        location: `${ipData.city}, ${ipData.country}`,
+                        ip: ipData.ip,
+                        isp: ipData.connection ? ipData.connection.isp : 'Unknown ISP',
+                        device: navigator.platform, // 操作系统
+                        screen: `${window.screen.width} x ${window.screen.height}`,
+                        language: navigator.language,
+                        battery: batteryStatus
+                    };
+
+                    // 3. 数据库交互：读旧的 -> 存新的
+                    const snapshot = await get(child(ref(db), 'visitorRecord'));
+
+                    // 写入新的
+                    await set(ref(db, 'visitorRecord'), myData);
+
+                    // 4. 展示旧的
+                    if (snapshot.exists()) {
+                        renderData(snapshot.val());
+                    } else {
+                        renderFirstTime();
+                    }
+
+                    // 切换视图
+                    entryView.classList.add('hidden');
+                    resultView.classList.remove('hidden');
+
+                } catch (error) {
+                    console.error(error);
+                    btn.innerText = "Error. Try Again.";
+                    btn.disabled = false;
+                }
+            });
+
+            // 辅助函数：获取电池 (部分浏览器不支持，需要处理)
+            async function getBatteryInfo() {
+                if ('getBattery' in navigator) {
+                    try {
+                        const b = await navigator.getBattery();
+                        const level = Math.round(b.level * 100) + "%";
+                        const status = b.charging ? "Charging ⚡" : "Draining";
+                        return `${level} (${status})`;
+                    } catch (e) {
+                        return "Unknown";
+                    }
+                }
+                return "Unknown"; // 苹果设备通常不允许获取电池
+            }
+
+            // 辅助函数：计算“多久以前”
+            function timeAgo(dateString) {
+                const seconds = Math.floor((new Date() - new Date(dateString)) / 1000);
+                let interval = seconds / 31536000;
+                if (interval > 1) return Math.floor(interval) + " years ago";
+                interval = seconds / 2592000;
+                if (interval > 1) return Math.floor(interval) + " months ago";
+                interval = seconds / 86400;
+                if (interval > 1) return Math.floor(interval) + " days ago";
+                interval = seconds / 3600;
+                if (interval > 1) return Math.floor(interval) + " hours ago";
+                interval = seconds / 60;
+                if (interval > 1) return Math.floor(interval) + " minutes ago";
+                return Math.floor(seconds) + " seconds ago";
+            }
+
+            // 渲染函数
+            function renderData(data) {
+                const fields = [
+                    { label: "Last Seen", value: timeAgo(data.time) }, // 转换成 "X分钟前"
+                    { label: "Location", value: data.location },
+                    { label: "IP Address", value: data.ip },
+                    { label: "Provider", value: data.isp },
+                    { label: "System", value: data.device },
+                    { label: "Battery", value: data.battery }, // 这里的Eerie点
+                    { label: "Screen", value: data.screen },
+                    { label: "Language", value: data.language }
+                ];
+
+                list.innerHTML = fields.map(item => `
+                    <li class="data-item">
+                        <span class="label">${item.label}</span>
+                        <span class="value">${item.value}</span>
+                    </li>
+                `).join('');
+            }
+
+            function renderFirstTime() {
+                list.innerHTML = `<li class="data-item" style="display:block; text-align:center;">
+                    You are the first. The cycle begins.
+                </li>`;
+            }
+    </script>
+  </body>
+</html>
