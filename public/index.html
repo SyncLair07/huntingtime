@@ -1,0 +1,151 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>The Previous Visitor</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+    <div class="scan-line"></div>
+
+    <div id="intro-screen">
+        <div class="content">
+            <h1>PROTOCOL 01: EXCHANGE</h1>
+            <p>To see the digital footprint of the person who was here before you, you must leave your own behind.</p>
+            <br>
+            <p class="warning">WARNING: Your screen resolution, device type, mouse movements, and battery level will be recorded for the next visitor.</p>
+            
+            <button id="agree-btn">I ACCEPT THE EXCHANGE</button>
+        </div>
+    </div>
+
+    <div id="data-screen" class="hidden">
+        <div id="ghost-cursor"></div> <div class="content">
+            <h2>LAST VISITOR RECORD</h2>
+            <div id="terminal-output">
+                </div>
+        </div>
+    </div>
+
+    <script>
+        let mouseTrail = [];
+        const maxTrail = 100; // Limit trail points to save memory
+
+        // 1. Record Mouse Movements (while they read the terms)
+        document.addEventListener('mousemove', (e) => {
+            if (mouseTrail.length < maxTrail) {
+                mouseTrail.push({ x: e.clientX, y: e.clientY, t: Date.now() });
+            }
+        });
+
+        document.getElementById('agree-btn').addEventListener('click', async () => {
+            // Show loading state
+            const btn = document.getElementById('agree-btn');
+            btn.innerText = "UPLOADING SOUL...";
+            btn.disabled = true;
+
+            // 2. Gather Data
+            let batteryLevel = "Unknown";
+            if (navigator.getBattery) {
+                const b = await navigator.getBattery();
+                batteryLevel = Math.round(b.level * 100) + "%" + (b.charging ? " (Charging)" : "");
+            }
+
+            const payload = {
+                screen: `${window.screen.width}x${window.screen.height}`,
+                timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+                battery: batteryLevel,
+                mouseTrail: mouseTrail // Send the recording
+            };
+
+            // 3. Send to Server
+            const response = await fetch('/api/exchange', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload)
+            });
+            const result = await response.json();
+
+            // 4. Switch Screens
+            document.getElementById('intro-screen').classList.add('hidden');
+            document.getElementById('data-screen').classList.remove('hidden');
+
+            // 5. Render Data
+            renderGhost(result);
+        });
+
+        function renderGhost(result) {
+            const output = document.getElementById('terminal-output');
+            
+            if (result.first) {
+                typeWriter(output, "> SYSTEM LOG: You are the first here. No echo found.", 0);
+                return;
+            }
+
+            const data = result.data;
+            const timeAgo = Math.floor((Date.now() - data.timestamp) / 1000); // seconds
+
+            // Eerie Text Generation
+            const lines = [
+                `> CONNECTION ESTABLISHED...`,
+                `> SUBJECT: Previous Visitor`,
+                `> TIME ELAPSED: They left ${timeAgo} seconds ago.`,
+                `> ORIGIN: ${data.ip} (Approximated)`,
+                `> DEVICE: ${data.os} / ${data.browser}`,
+                `> VIEWPORT: ${data.screen}`,
+                `> ENERGY: ${data.battery}`,
+                `> TIMEZONE: ${data.timezone}`,
+                `> ... PLAYING BACK MOVEMENT TRACE ...`
+            ];
+
+            // Typewriter effect
+            let i = 0;
+            function nextLine() {
+                if (i < lines.length) {
+                    const p = document.createElement('p');
+                    output.appendChild(p);
+                    typeWriter(p, lines[i], 0, nextLine);
+                    i++;
+                } else {
+                    // After text is done, play the ghost cursor
+                    if (data.mouseTrail && data.mouseTrail.length > 0) {
+                        playGhostCursor(data.mouseTrail);
+                    }
+                }
+            }
+            nextLine();
+        }
+
+        function typeWriter(element, text, index, callback) {
+            if (index < text.length) {
+                element.innerHTML += text.charAt(index);
+                setTimeout(() => typeWriter(element, text, index + 1, callback), 30); // Typing speed
+            } else if (callback) {
+                setTimeout(callback, 500); // Pause between lines
+            }
+        }
+
+        function playGhostCursor(trail) {
+            const cursor = document.getElementById('ghost-cursor');
+            cursor.style.display = 'block';
+            
+            // Normalize start time
+            const startTime = trail[0].t;
+            
+            trail.forEach((point) => {
+                const delay = point.t - startTime;
+                setTimeout(() => {
+                    cursor.style.left = point.x + 'px';
+                    cursor.style.top = point.y + 'px';
+                }, delay);
+            });
+            
+            // Fade out cursor after replay
+            setTimeout(() => {
+                cursor.style.opacity = 0;
+            }, trail[trail.length-1].t - startTime + 1000);
+        }
+    </script>
+</body>
+</html>
